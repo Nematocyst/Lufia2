@@ -1,0 +1,572 @@
+{
+ "00": {
+  "name": "end"
+ },
+ "07": {
+  "name": "end_07"
+ },
+ "2C": {
+  "name": "end_2C"
+ },
+ "2D": {
+  "name": "end_2D"
+ },
+ "2E": {
+  "name": "end_2E"
+ },
+ "56": {
+  "name": "end_56"
+ },
+ "62": {
+  "name": "end_62"
+ },
+ "93": {
+  "name": "end_93"
+ },
+ "9B": {
+  "name": "end_9B"
+ },
+ "AC": {
+  "name": "end_AC"
+ },
+ "AD": {
+  "name": "end_AD"
+ },
+ "01": {
+  "name": "goto_if_flag_set"
+ },
+ "0C": {
+  "name": "goto_if_flag_clear"
+ },
+ "08": {
+  "name": "set_flag"
+ },
+ "09": {
+  "name": "clear_flag"
+ },
+ "0A": {
+  "name": "goto"
+ },
+ "0B": {
+  "name": "sound"
+ },
+ "02": {
+  "name": "object_on"
+ },
+ "03": {
+  "name": "object_off"
+ },
+ "04": {
+  "name": "goto_if_object_at"
+ },
+ "70": {
+  "name": "goto_unless_object_at"
+ },
+ "05": {
+  "name": "test_object_at"
+ },
+ "06": {
+  "name": "redraw_object_region"
+ },
+ "0D": {
+  "name": "goto_if_facing_cell"
+ },
+ "0E": {
+  "name": "place_object"
+ },
+ "0F": {
+  "name": "goto_if_cell_type"
+ },
+ "6C": {
+  "name": "goto_unless_cell_type"
+ },
+ "10": {
+  "name": "redraw_all_layers"
+ },
+ "11": {
+  "name": "wait"
+ },
+ "12": {
+  "name": "goto_if_leader_at"
+ },
+ "6D": {
+  "name": "goto_unless_leader_at"
+ },
+ "13": {
+  "name": "test_leader_at"
+ },
+ "14": {
+  "name": "goto_if_flag_matches_test"
+ },
+ "15": {
+  "name": "test_area"
+ },
+ "16": {
+  "name": "goto_if_area_attr"
+ },
+ "6E": {
+  "name": "goto_unless_area_attr"
+ },
+ "17": {
+  "name": "test_area8"
+ },
+ "18": {
+  "name": "goto_if_area8"
+ },
+ "6F": {
+  "name": "goto_unless_area8"
+ },
+ "72": {
+  "name": "test_area1"
+ },
+ "73": {
+  "name": "goto_if_area1"
+ },
+ "74": {
+  "name": "goto_unless_area1"
+ },
+ "75": {
+  "name": "test_claimed_object"
+ },
+ "76": {
+  "name": "goto_if_claimed_object"
+ },
+ "77": {
+  "name": "goto_unless_claimed_object"
+ },
+ "19": {
+  "name": "exit_via"
+ },
+ "1A": {
+  "name": "exit_by_id"
+ },
+ "1B": {
+  "name": "set_inidisp"
+ },
+ "1C": {
+  "name": "screen_shake"
+ },
+ "1D": {
+  "name": "stop_shake"
+ },
+ "1E": {
+  "name": "exit_if_test_else"
+ },
+ "2B": {
+  "name": "exit_unless_test"
+ },
+ "1F": {
+  "name": "copy_object_region_at"
+ },
+ "20": {
+  "name": "test_actors_hidden"
+ },
+ "21": {
+  "name": "probe_cell_xy"
+ },
+ "22": {
+  "name": "probe_cell"
+ },
+ "23": {
+  "name": "actor_face"
+ },
+ "24": {
+  "name": "set_probe_xy3"
+ },
+ "25": {
+  "name": "spawn_actor_at_probe"
+ },
+ "26": {
+  "name": "call_if_test"
+ },
+ "27": {
+  "name": "call"
+ },
+ "28": {
+  "name": "store_test"
+ },
+ "29": {
+  "name": "flag_from_test"
+ },
+ "2A": {
+  "name": "place_object_at_probe"
+ },
+ "2F": {
+  "name": "var_copy"
+ },
+ "30": {
+  "name": "var_add"
+ },
+ "31": {
+  "name": "var_sub"
+ },
+ "32": {
+  "name": "var_inc"
+ },
+ "33": {
+  "name": "var_dec"
+ },
+ "34": {
+  "name": "var_set"
+ },
+ "35": {
+  "name": "goto_if_var_eq"
+ },
+ "36": {
+  "name": "goto_if_var_ne"
+ },
+ "37": {
+  "name": "goto_if_var_gt"
+ },
+ "38": {
+  "name": "goto_if_var_lt"
+ },
+ "39": {
+  "name": "goto_if_var_ge"
+ },
+ "3A": {
+  "name": "goto_if_var_le"
+ },
+ "3B": {
+  "name": "goto_if_var_eq_var"
+ },
+ "3C": {
+  "name": "goto_if_var_ne_var"
+ },
+ "3D": {
+  "name": "goto_if_var_gt_var"
+ },
+ "3E": {
+  "name": "goto_if_var_lt_var"
+ },
+ "3F": {
+  "name": "goto_if_var_ge_var"
+ },
+ "40": {
+  "name": "goto_if_var_le_var"
+ },
+ "55": {
+  "name": "point_copy"
+ },
+ "57": {
+  "name": "nop_57"
+ },
+ "58": {
+  "name": "scroll_layer"
+ },
+ "59": {
+  "name": "scroll_reset"
+ },
+ "5A": {
+  "name": "push_object_up"
+ },
+ "5B": {
+  "name": "push_object_right"
+ },
+ "5C": {
+  "name": "push_object_down"
+ },
+ "5D": {
+  "name": "push_object_left"
+ },
+ "5E": {
+  "name": "find_object_at"
+ },
+ "5F": {
+  "name": "wait_actor_state"
+ },
+ "60": {
+  "name": "hide_actor"
+ },
+ "61": {
+  "name": "show_actor"
+ },
+ "63": {
+  "name": "start_event_actor"
+ },
+ "64": {
+  "name": "actor_move_64"
+ },
+ "65": {
+  "name": "actor_move_65"
+ },
+ "66": {
+  "name": "actor_move_66"
+ },
+ "67": {
+  "name": "actor_move_67"
+ },
+ "68": {
+  "name": "wait_actor_idle"
+ },
+ "69": {
+  "name": "point_set"
+ },
+ "6A": {
+  "name": "actor_action"
+ },
+ "6B": {
+  "name": "wait_actor_6B"
+ },
+ "78": {
+  "name": "spawn_actors_in_area"
+ },
+ "79": {
+  "name": "set_E316"
+ },
+ "7A": {
+  "name": "place_object_7A"
+ },
+ "7B": {
+  "name": "scroll_update"
+ },
+ "7C": {
+  "name": "actor_path_7C"
+ },
+ "7D": {
+  "name": "actor_path_7D"
+ },
+ "7E": {
+  "name": "actor_path_7E"
+ },
+ "7F": {
+  "name": "actor_path_7F"
+ },
+ "80": {
+  "name": "actor_path_80"
+ },
+ "81": {
+  "name": "actor_move_81"
+ },
+ "82": {
+  "name": "point_from_pending"
+ },
+ "83": {
+  "name": "point_x_range"
+ },
+ "84": {
+  "name": "point_y_range"
+ },
+ "85": {
+  "name": "set_05BD"
+ },
+ "86": {
+  "name": "reload_map"
+ },
+ "87": {
+  "name": "test_cell_bits"
+ },
+ "88": {
+  "name": "goto_if_cell_bits"
+ },
+ "89": {
+  "name": "goto_unless_cell_bits"
+ },
+ "8A": {
+  "name": "release_actor"
+ },
+ "8B": {
+  "name": "release_actor_occupancy"
+ },
+ "8C": {
+  "name": "refresh_party"
+ },
+ "8D": {
+  "name": "update_object_region3"
+ },
+ "8E": {
+  "name": "update_object_region5"
+ },
+ "8F": {
+  "name": "condition_list_message"
+ },
+ "90": {
+  "name": "render_object_area"
+ },
+ "91": {
+  "name": "copy_object_region"
+ },
+ "92": {
+  "name": "copy_object_region3"
+ },
+ "94": {
+  "name": "test_object_record"
+ },
+ "95": {
+  "name": "goto_if_object_record"
+ },
+ "96": {
+  "name": "goto_unless_object_record"
+ },
+ "97": {
+  "name": "claim_object_97"
+ },
+ "98": {
+  "name": "claim_object_98"
+ },
+ "99": {
+  "name": "claim_object_99"
+ },
+ "9A": {
+  "name": "claim_object_9A"
+ },
+ "9C": {
+  "name": "find_object_9C"
+ },
+ "9D": {
+  "name": "point_object_9D"
+ },
+ "9E": {
+  "name": "point_object_9E"
+ },
+ "9F": {
+  "name": "probe_flag_D104"
+ },
+ "A0": {
+  "name": "object_bit_set"
+ },
+ "A1": {
+  "name": "object_bit_clear"
+ },
+ "A2": {
+  "name": "set_field_flag"
+ },
+ "A3": {
+  "name": "actor_A3"
+ },
+ "A4": {
+  "name": "actor_A4"
+ },
+ "A5": {
+  "name": "actor_A5"
+ },
+ "A6": {
+  "name": "actor_A6"
+ },
+ "A7": {
+  "name": "read_cell_value"
+ },
+ "A8": {
+  "name": "update_object_region_A8"
+ },
+ "A9": {
+  "name": "gosub"
+ },
+ "AA": {
+  "name": "return"
+ },
+ "AB": {
+  "name": "clear_D0BF"
+ },
+ "AE": {
+  "name": "actor_claimed_action"
+ },
+ "AF": {
+  "name": "actor_flag_AF"
+ },
+ "B0": {
+  "name": "actor_flag_B0"
+ },
+ "B1": {
+  "name": "actor_flag_B1"
+ },
+ "B2": {
+  "name": "actor_flag_B2"
+ },
+ "B3": {
+  "name": "init_object_actor"
+ },
+ "B4": {
+  "name": "scroll_layer_to"
+ },
+ "B5": {
+  "name": "scroll_stop"
+ },
+ "B6": {
+  "name": "actor_clear_occupancy"
+ },
+ "B7": {
+  "name": "actor_mark_occupancy"
+ },
+ "B8": {
+  "name": "nop_B8"
+ },
+ "B9": {
+  "name": "refresh_party_clear_mode"
+ },
+ "BA": {
+  "name": "find_header_record"
+ },
+ "BB": {
+  "name": "begin_dialogue_event"
+ },
+ "BC": {
+  "name": "actor_set_state"
+ },
+ "BD": {
+  "name": "object_draw_flags"
+ },
+ "BE": {
+  "name": "center_layers"
+ },
+ "41": {
+  "name": "point_x_set"
+ },
+ "42": {
+  "name": "point_x_add"
+ },
+ "43": {
+  "name": "point_x_sub"
+ },
+ "44": {
+  "name": "point_x_inc"
+ },
+ "45": {
+  "name": "point_x_dec"
+ },
+ "46": {
+  "name": "point_y_set"
+ },
+ "47": {
+  "name": "point_y_add"
+ },
+ "48": {
+  "name": "point_y_sub"
+ },
+ "49": {
+  "name": "point_y_inc"
+ },
+ "4A": {
+  "name": "point_y_dec"
+ },
+ "4B": {
+  "name": "point_x2_set"
+ },
+ "4C": {
+  "name": "point_x2_add"
+ },
+ "4D": {
+  "name": "point_x2_sub"
+ },
+ "4E": {
+  "name": "point_x2_inc"
+ },
+ "4F": {
+  "name": "point_x2_dec"
+ },
+ "50": {
+  "name": "point_y2_set"
+ },
+ "51": {
+  "name": "point_y2_add"
+ },
+ "52": {
+  "name": "point_y2_sub"
+ },
+ "53": {
+  "name": "point_y2_inc"
+ },
+ "54": {
+  "name": "point_y2_dec"
+ }
+}

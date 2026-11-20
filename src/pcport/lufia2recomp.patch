@@ -1,0 +1,431 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0d1df25..783549c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -151,6 +151,7 @@ set(LUFIA2_RECOMP_UI_ROOT "" CACHE PATH
+     "Optional local recomp-ui source tree")
+ set(LUFIA2_SDL3_ROOT "" CACHE PATH
+     "Optional local SDL3 source tree")
++option(LUFIA2_MODDED_ROM "Build from a patched ROM (skips the clean-ROM check)" OFF)
+ set(LUFIA2_ROM "${CMAKE_SOURCE_DIR}/lufia2.sfc" CACHE FILEPATH
+     "Path to the supported Lufia II USA ROM")
+ 
+@@ -305,7 +306,14 @@ set(LUFIA2_GENERATED_DIR "${CMAKE_SOURCE_DIR}/src/gen")
+ if(EXISTS "${LUFIA2_ROM}")
+     file(SHA256 "${LUFIA2_ROM}" _rom_sha256)
+     string(TOUPPER "${_rom_sha256}" _rom_sha256)
+-    if(NOT _rom_sha256 STREQUAL
++    if(LUFIA2_MODDED_ROM)
++        # ROM-hack project (2026-11-14): build from a patched ROM (Restored, Iris...).
++        # The executable then expects that ROM's SHA-1 instead of the clean one.
++        file(SHA1 "${LUFIA2_ROM}" _rom_sha1)
++        string(TOLOWER "${_rom_sha1}" _rom_sha1)
++        add_compile_definitions(LUFIA2_EXPECTED_SHA1="${_rom_sha1}" LUFIA2_MODDED_ROM_BUILD=1)
++        message(STATUS "Lufia2: building from a modified ROM, SHA-1 ${_rom_sha1}")
++    elseif(NOT _rom_sha256 STREQUAL
+        "7C34ECB16C10F551120ED7B86CFBC947042F479B52EE74BB3C40E92FDD192B3A")
+         message(FATAL_ERROR
+             "Unsupported ROM. Expected the clean Lufia II USA release.")
+@@ -470,6 +478,7 @@ set(LUFIA2_HOST_SOURCES
+     src/desktop_glue.c
+     src/lufia2_battle.c
+     src/lufia2_battle_widescreen.c
++    src/lufia2_hicolour_bg.c
+     src/lufia2_game_info.c
+     patches/lufia2_intro_mode7_world.c
+     patches/lufia2_mode7_substep.c
+diff --git a/cmake/Lufia2Decomp.cmake b/cmake/Lufia2Decomp.cmake
+index c3a2eec..c5a2c56 100644
+--- a/cmake/Lufia2Decomp.cmake
++++ b/cmake/Lufia2Decomp.cmake
+@@ -22,6 +22,12 @@ function(lufia2_write_decomp_fallback_report path reason)
+         "All game functions use the generated static recomp/LLE path.\n")
+ endfunction()
+ 
++# ROM-hack project (2026-11-14): a modified ROM can pass a filtered bindings file
++# (tools/pcport/mod_bindings.py) so routines its patches change run from the ROM.
++if(NOT LUFIA2_DECOMP_BINDINGS)
++    set(LUFIA2_DECOMP_BINDINGS "${CMAKE_SOURCE_DIR}/recomp/decomp_bindings.toml")
++endif()
++
+ function(lufia2_prepare_decomp)
+     set(options)
+     set(one_value_args CFG_DIR OUTPUT_DIR REPORT TEXT_REPORT OUT_CFG_DIR)
+@@ -73,7 +79,7 @@ function(lufia2_prepare_decomp)
+     set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY
+         CMAKE_CONFIGURE_DEPENDS
+             "${_root}/metadata/functions.toml"
+-            "${CMAKE_SOURCE_DIR}/recomp/decomp_bindings.toml")
++            "${LUFIA2_DECOMP_BINDINGS}")
+ 
+     set(_args)
+     if(LUFIA2_DECOMP_REFERENCE_ONLY)
+@@ -87,7 +93,7 @@ function(lufia2_prepare_decomp)
+             "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+             "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/decomp_manifest.py"
+             --decomp-root "${_root}"
+-            --bindings "${CMAKE_SOURCE_DIR}/recomp/decomp_bindings.toml"
++            --bindings "${LUFIA2_DECOMP_BINDINGS}"
+             --cfg-dir "${DECOMP_CFG_DIR}"
+             --out-dir "${DECOMP_OUTPUT_DIR}"
+             --report "${DECOMP_REPORT}"
+diff --git a/src/lufia2_autopilot.inc b/src/lufia2_autopilot.inc
+new file mode 100644
+index 0000000..b0eed6b
+--- /dev/null
++++ b/src/lufia2_autopilot.inc
+@@ -0,0 +1,144 @@
++/* Test autopilot (Lufia II ROM-hack project, 2026-11-14). Included by main.c.
++ *
++ * LUFIA2_AUTOPILOT=script.txt runs the game from a script instead of a player,
++ * as fast as possible, and quits at the end. One command per line:
++ *   boot N              mash START/A N times (title -> new game -> field)
++ *   hold BUTTONS N      hold buttons (A,B,X,Y,L,R,START,SELECT,UP,DOWN,LEFT,RIGHT joined by +) N frames
++ *   wait N              N frames, no buttons
++ *   poke ADDR HEX       write WRAM bytes (ADDR hex, 0-1FFFF) once
++ *   keep ADDR HEX N     write them every frame for N frames (while the next commands run)
++ *   seek ADDR VAL MAX   walk up/down (40 frames each) until WRAM[ADDR] == VAL, at most MAX frames
++ *   until ADDR VAL MAX  no buttons, until WRAM[ADDR] == VAL, at most MAX frames
++ *   shot PATH           save what the player sees as a PPM picture
++ *   dump PATH           save all 128 KB of WRAM
++ *   log TEXT            print a line (with the frame number) to stderr
++ *   quit
++ * Lines starting with # are ignored. Test only: never enabled unless the variable is set. */
++#include <ctype.h>
++
++typedef struct AutoCmd { char op[8]; uint32_t a, b, c; char text[256]; } AutoCmd;
++static AutoCmd *s_ap;
++static int s_ap_n, s_ap_i = -1, s_ap_left;
++static uint32_t s_ap_frame;
++static uint32_t s_keep_addr, s_keep_left;
++static uint8_t s_keep_bytes[64];
++static int s_keep_len;
++
++static uint32_t ApButtons(const char *s) {
++    static const struct { const char *n; uint32_t m; } k[] = {
++        {"A", PAD_A}, {"B", PAD_B}, {"X", PAD_X}, {"Y", PAD_Y}, {"L", PAD_L}, {"R", PAD_R},
++        {"START", PAD_START}, {"SELECT", PAD_SELECT}, {"UP", PAD_UP}, {"DOWN", PAD_DOWN},
++        {"LEFT", PAD_LEFT}, {"RIGHT", PAD_RIGHT}};
++    uint32_t m = 0;
++    char buf[128]; snprintf(buf, sizeof buf, "%s", s);
++    for (char *t = strtok(buf, "+"); t; t = strtok(NULL, "+"))
++        for (size_t i = 0; i < sizeof k / sizeof k[0]; i++)
++            if (strcmp(t, k[i].n) == 0) m |= k[i].m;
++    return m;
++}
++
++static int ApHexBytes(const char *s, uint8_t *out, int max) {
++    int n = 0;
++    while (s[0] && s[1] && n < max && isxdigit((unsigned char)s[0])) {
++        unsigned v; sscanf(s, "%2x", &v); out[n++] = (uint8_t)v; s += 2;
++    }
++    return n;
++}
++
++static bool AutopilotLoad(void) {
++    const char *path = getenv("LUFIA2_AUTOPILOT");
++    if (!path || !*path) return false;
++    FILE *f = fopen(path, "r");
++    if (!f) { fprintf(stderr, "[autopilot] cannot open %s\n", path); return false; }
++    char line[512];
++    while (fgets(line, sizeof line, f)) {
++        if (line[0] == '#' || line[0] == '\n') continue;
++        s_ap = realloc(s_ap, sizeof(AutoCmd) * (size_t)(s_ap_n + 1));
++        AutoCmd *c = &s_ap[s_ap_n++];
++        memset(c, 0, sizeof *c);
++        char x[256] = "", y[256] = "", z[64] = "";
++        sscanf(line, "%7s %255s %255s %63s", c->op, x, y, z);
++        line[strcspn(line, "\r\n")] = 0;
++        if (!strcmp(c->op, "hold")) { c->a = ApButtons(x); c->b = (uint32_t)atoi(y); }
++        else if (!strcmp(c->op, "poke") || !strcmp(c->op, "keep")) {
++            c->a = (uint32_t)strtoul(x, NULL, 16); snprintf(c->text, sizeof c->text, "%s", y);
++            c->c = (uint32_t)atoi(z);
++        } else if (!strcmp(c->op, "seek") || !strcmp(c->op, "until")) {
++            c->a = (uint32_t)strtoul(x, NULL, 16); c->b = (uint32_t)strtoul(y, NULL, 16);
++            c->c = (uint32_t)atoi(z);
++        } else if (!strcmp(c->op, "shot") || !strcmp(c->op, "log") || !strcmp(c->op, "dump")) {
++            const char *p = line + strlen(c->op); while (*p == ' ') p++;
++            snprintf(c->text, sizeof c->text, "%s", p);
++        } else { c->a = (uint32_t)atoi(x); }
++    }
++    fclose(f);
++    fprintf(stderr, "[autopilot] %d commands from %s\n", s_ap_n, path);
++    s_ap_i = 0; s_ap_left = -1;
++    return true;
++}
++
++static void ApShot(const char *path) {
++    FILE *f = fopen(path, "wb");
++    if (!f) return;
++    const int w = s_frame_width, h = SNES_HEIGHT;
++    fprintf(f, "P6\n%d %d\n255\n", w, h);
++    for (int y = 0; y < h; y++)
++        for (int x = 0; x < w; x++) {
++            const uint8_t *p = &s_present_pixels[((size_t)y * w + x) * 4];
++            uint8_t rgb[3] = {p[2], p[1], p[0]};
++            fwrite(rgb, 1, 3, f);
++        }
++    fclose(f);
++    fprintf(stderr, "[autopilot] frame %u: shot %s\n", s_ap_frame, path);
++}
++
++/* Before the guest frame: returns the buttons to press; *quit set at the end. */
++static uint32_t AutopilotInput(bool *quit) {
++    s_ap_frame++;
++    if (s_keep_left) {
++        for (int i = 0; i < s_keep_len && s_keep_addr + (uint32_t)i < 0x20000; i++)
++            g_ram[s_keep_addr + (uint32_t)i] = s_keep_bytes[i];
++        s_keep_left--;
++    }
++    while (s_ap_i < s_ap_n) {
++        AutoCmd *c = &s_ap[s_ap_i];
++        if (!strcmp(c->op, "boot")) {
++            if (s_ap_left < 0) s_ap_left = (int)c->a * 12;
++            if (s_ap_left-- > 0) {
++                const int k = ((int)c->a * 12 - s_ap_left - 1) / 12, ph = ((int)c->a * 12 - s_ap_left - 1) % 12;
++                return ph < 2 ? (k % 7 == 0 ? PAD_START : PAD_A) : 0;
++            }
++        } else if (!strcmp(c->op, "hold") || !strcmp(c->op, "wait")) {
++            const int n = !strcmp(c->op, "hold") ? (int)c->b : (int)c->a;
++            if (s_ap_left < 0) s_ap_left = n;
++            if (s_ap_left-- > 0) return !strcmp(c->op, "hold") ? c->a : 0;
++        } else if (!strcmp(c->op, "poke") || !strcmp(c->op, "keep")) {
++            uint8_t b[64]; int n = ApHexBytes(c->text, b, 64);
++            for (int i = 0; i < n && c->a + (uint32_t)i < 0x20000; i++) g_ram[c->a + (uint32_t)i] = b[i];
++            if (!strcmp(c->op, "keep")) {
++                s_keep_addr = c->a; s_keep_len = n; memcpy(s_keep_bytes, b, (size_t)n); s_keep_left = c->c;
++            }
++        } else if (!strcmp(c->op, "seek") || !strcmp(c->op, "until")) {
++            if (s_ap_left < 0) s_ap_left = (int)c->c;
++            if (g_ram[c->a & 0x1ffff] != (uint8_t)c->b && s_ap_left-- > 0) {
++                if (!strcmp(c->op, "until")) return 0;
++                return ((c->c - (uint32_t)s_ap_left) / 40) % 2 ? PAD_DOWN : PAD_UP;
++            }
++            fprintf(stderr, "[autopilot] frame %u: %s $%05X == %02X: %s\n", s_ap_frame, c->op,
++                    c->a, c->b, g_ram[c->a & 0x1ffff] == (uint8_t)c->b ? "yes" : "TIMEOUT");
++        } else if (!strcmp(c->op, "shot")) {
++            ApShot(c->text);
++        } else if (!strcmp(c->op, "dump")) {
++            FILE *df = fopen(c->text, "wb");
++            if (df) { fwrite(g_ram, 1, 0x20000, df); fclose(df); }
++        } else if (!strcmp(c->op, "log")) {
++            fprintf(stderr, "[autopilot] frame %u: %s | map %02X%02X bg %02X\n", s_ap_frame, c->text,
++                    g_ram[0x5ad], g_ram[0x5ac], g_ram[0x11e1]);
++        } else if (!strcmp(c->op, "quit")) {
++            *quit = true; return 0;
++        }
++        s_ap_i++; s_ap_left = -1;
++    }
++    *quit = true;
++    return 0;
++}
+diff --git a/src/lufia2_hicolour_bg.c b/src/lufia2_hicolour_bg.c
+new file mode 100644
+index 0000000..189e5da
+--- /dev/null
++++ b/src/lufia2_hicolour_bg.c
+@@ -0,0 +1,91 @@
++/* Hi-colour battle backgrounds (Lufia II ROM-hack project, 2026-11-14).
++ *
++ * While a battle shows background id N and assets/hicolour/battle_NN.l2hc
++ * exists, the PPU's art override (snes/ppu.h, PpuArtOverride) draws that
++ * full-colour picture wherever the game draws its background layer (BG1) or
++ * the backdrop. Nothing in the game changes: it still loads its own 16-colour
++ * tiles; they are simply not what the player sees. Sprites, windows, text,
++ * colour math (spell tints, translucent windows), fades and shakes keep
++ * working because the substitution happens per pixel inside the compositor.
++ *
++ * File format (.l2hc, little endian): "L2HC", u16 width, u16 height,
++ * i16 plane x, i16 plane y (where the picture's top-left sits on BG1's
++ * plane), then width*height u32 0xAARRGGBB. Alpha 0 = keep the game's pixel.
++ */
++#include "lufia2_hicolour_bg.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "host_paths.h"
++#include "snes/ppu.h"
++#include "lufia2_battle.h"
++
++enum { MAX_IDS = 0x40 };
++
++typedef struct Art {
++    uint32_t *rgb;
++    int w, h, ox, oy;
++    bool tried;
++} Art;
++
++static Art s_art[MAX_IDS];
++static int s_disabled = -1;
++
++static bool Load(uint8_t id, Art *a) {
++    char leaf[64], path[1024];
++    snprintf(leaf, sizeof leaf, "assets/hicolour/battle_%02X.l2hc", id);
++    if (!snesrecomp_exe_dir_path(leaf, path, sizeof path))
++        snprintf(path, sizeof path, "%s", leaf);
++    FILE *f = fopen(path, "rb");
++    if (!f)
++        return false;
++    uint8_t hdr[12];
++    bool ok = fread(hdr, 1, 12, f) == 12 && memcmp(hdr, "L2HC", 4) == 0;
++    if (ok) {
++        a->w = hdr[4] | hdr[5] << 8;
++        a->h = hdr[6] | hdr[7] << 8;
++        a->ox = (int16_t)(hdr[8] | hdr[9] << 8);
++        a->oy = (int16_t)(hdr[10] | hdr[11] << 8);
++        size_t n = (size_t)a->w * (size_t)a->h;
++        a->rgb = n ? malloc(n * 4) : NULL;
++        ok = a->rgb && fread(a->rgb, 4, n, f) == n;
++        if (!ok) {
++            free(a->rgb);
++            a->rgb = NULL;
++        }
++    }
++    fclose(f);
++    fprintf(stderr, "[hicolour] battle background $%02X: %s\n", id,
++            ok ? "loaded" : "bad file");
++    return ok;
++}
++
++void Lufia2HiColourBgFrame(const uint8_t *wram) {
++    if (s_disabled < 0) {
++        const char *e = getenv("LUFIA2_HICOLOUR");
++        s_disabled = e && e[0] == '0';
++    }
++    g_ppu_art_override.rgb = NULL;
++    if (s_disabled)
++        return;
++    const Lufia2BattleState b = Lufia2BattleInspect(wram);
++    if (!b.active || b.background_id >= MAX_IDS)
++        return;
++    Art *a = &s_art[b.background_id];
++    if (!a->tried) {
++        a->tried = true;
++        Load(b.background_id, a);
++    }
++    if (!a->rgb)
++        return;
++    g_ppu_art_override.rgb = a->rgb;
++    g_ppu_art_override.w = a->w;
++    g_ppu_art_override.h = a->h;
++    g_ppu_art_override.ox = a->ox;
++    g_ppu_art_override.oy = a->oy;
++    g_ppu_art_override.layer = 0;      /* BG1 = the battle background */
++    g_ppu_art_override.backdrop = 1;   /* see-through parts of BG1 too */
++    g_ppu_art_override.tint = wram[0x1BF3];   /* effect brightness of palette row 2 */
++}
+diff --git a/src/lufia2_hicolour_bg.h b/src/lufia2_hicolour_bg.h
+new file mode 100644
+index 0000000..e0d3d1b
+--- /dev/null
++++ b/src/lufia2_hicolour_bg.h
+@@ -0,0 +1,11 @@
++#ifndef LUFIA2_HICOLOUR_BG_H
++#define LUFIA2_HICOLOUR_BG_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++/* Call once per frame before the PPU draws it: arms or clears the PPU art
++ * override for the current battle background. LUFIA2_HICOLOUR=0 disables. */
++void Lufia2HiColourBgFrame(const uint8_t *wram);
++
++#endif
+diff --git a/src/main.c b/src/main.c
+index d88b039..05b850d 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -61,6 +61,7 @@
+ #include "lufia2_log.h"
+ #include "lufia2_wide_range.h"
+ #include "lufia2_battle.h"
++#include "lufia2_hicolour_bg.h"
+ #include "lufia2_build_identity.h"
+ #include "lufia2_battle_widescreen.h"
+ #include "lufia2_battle_effects.h"
+@@ -128,11 +129,13 @@ typedef enum PlayerInputSource {
+     PLAYER_INPUT_GAMEPAD,
+ } PlayerInputSource;
+ 
+-static const char kLufia2Sha1[] =
+-    "a89931c1f29b161b8be717dfab4a4adb54b42b84";
++#ifndef LUFIA2_EXPECTED_SHA1
++#define LUFIA2_EXPECTED_SHA1 "a89931c1f29b161b8be717dfab4a4adb54b42b84"
++#endif
++static const char kLufia2Sha1[] = LUFIA2_EXPECTED_SHA1;
+ 
+ static const char *const kLufia2KnownSha1[] = {
+-    "a89931c1f29b161b8be717dfab4a4adb54b42b84",
++    LUFIA2_EXPECTED_SHA1,
+ };
+ 
+ enum {
+@@ -184,6 +187,8 @@ static int s_current_window_scale = DEFAULT_WINDOW_SCALE;
+ static int s_volume_percent = 100;
+ static PlayerInputSource s_player1_source = PLAYER_INPUT_KEYBOARD;
+ static int s_frame_width = SNES_WIDTH;
++#include "lufia2_autopilot.inc"
++static bool s_autopilot;
+ static bool s_vsync_enabled = true;
+ static bool s_window_resize_pending;
+ static bool s_rewind_requested;
+@@ -1951,7 +1956,8 @@ static bool PresentFrame(bool include_rewind) {
+ 
+ static int FramePpuFlags(void) {
+     int flags = 0;
+-    if (g_config.new_renderer || g_ws_active)
++    /* The hi-colour art override lives in the new renderer's compositor. */
++    if (g_config.new_renderer || g_ws_active || g_ppu_art_override.rgb)
+         flags |= kPpuRenderFlags_NewRenderer;
+     /* Keep the field sprite budget while its saved picture fades out. */
+     if (g_config.no_sprite_limits ||
+@@ -1970,6 +1976,7 @@ static void PrepareVideoFrame(void) {
+         (size_t)s_frame_width * 4 * PPU_BUFFER_HEIGHT);
+ 
+     Lufia2MapLoadFrame();
++    Lufia2HiColourBgFrame(g_ram);   /* hi-colour battle backgrounds (art override) */
+ 
+     const uint8_t *raster_rows = NULL;
+     size_t raster_stride = 0;
+@@ -2669,9 +2676,14 @@ int main(int argc, char **argv) {
+         return 1;
+     }
+     if (!Lufia2ShrineGraphicsApply(&rom_data, &rom_size)) {
++#ifdef LUFIA2_MODDED_ROM_BUILD
++        /* The shrine BPS is made for the clean ROM; a modified ROM keeps its own graphics. */
++        fprintf(stderr, "[rom] Modified ROM: shrine graphics repair skipped.\n");
++#else
+         fprintf(stderr, "[rom] Could not repair the US shrine graphics.\n");
+         free(rom_data);
+         return 1;
++#endif
+     }
+ 
+     {
+@@ -2798,6 +2810,9 @@ int main(int argc, char **argv) {
+ 
+     bool running = true;
+     uint32_t frame_counter = 0;
++    s_autopilot = AutopilotLoad();
++    if (s_autopilot)
++        g_config.disable_frame_delay = true;
+     uint64_t frame_deadline_ms = SDL_GetTicks();
+ 
+     while (running && !g_fail) {
+@@ -2850,8 +2865,13 @@ int main(int argc, char **argv) {
+                 &s_present_timeline, snesrecomp_now_us(), &step);
+ 
+         if (step.run_guest) {
+-            const uint32_t raw_input =
++            uint32_t raw_input =
+                 ReadKeyboardInput() | ReadGamepadInput();
++            if (s_autopilot) {
++                bool ap_quit = false;
++                raw_input = AutopilotInput(&ap_quit);
++                if (ap_quit) { running = false; break; }
++            }
+             s_input_release_mask &= raw_input;
+             const uint32_t input = raw_input & ~s_input_release_mask;
+ 

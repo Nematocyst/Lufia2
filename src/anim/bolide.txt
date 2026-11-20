@@ -1,0 +1,99 @@
+; Bolide (draft 2): a big comet streaks in from the upper left at whoever is targeted,
+; red flash, explosions on every target. Works for the IP (hits enemies) and for the
+; Copper Dragon (hits the party). Built from Firebird's pieces.
+; Uses two routines of the original bank: L_9204 and L_A01D (same addresses in the relocated copy).
+B_IP:                                                     ; Bolide, IP version: comet hits the enemy row
+    set_param                    $00, $0000
+    jump                         B_BODY
+B_MONSTER:                                                ; Bolide, monster version: comet hits the party
+    set_param                    $00, $0001
+B_BODY:                                                   ; (scripts have one return slot: no nested calls)
+    change_display               $01, $001D, $0009
+    palette_preset1              $0010
+    palette_preset3              $001E
+    bg3_map                      $01
+    load_graphics                $0008, $3800
+    set_brightness               $01, $C0
+    call                         L_9204
+    clear_bg_upload
+    hdma                         $02
+    yield
+    graphics                     $001F, $4000, $1000      ; explosion sprites
+    yield
+    palette_preset3              $0024
+    yield
+    load_graphics                $001A, $3800             ; red overlay
+    bg_request                   $01
+    yield
+    sound                        $69
+    branch_if_field              B_AIM_PARTY, $13, $01    ; param 0 (slot +$13) = 1: monster version
+    spawn_script_at              B_AIM, $4880             ; impact point x 128, y 72 (enemy row)
+    jump                         B_REST
+B_AIM_PARTY:
+    spawn_script_at              B_AIM, $8C58             ; impact point x 88, y 140 (party)
+B_REST:
+    delay                        $21                      ; comet flight: 32 frames
+    yield
+    wait1
+    sound                        $11
+    set_brightness               $01, $00                 ; red flash at full strength
+    spawn_scripts_for_targets    B_HIT                    ; explosions on every target
+    loop1                        $20
+    adjust_brightness            $01, $FE
+    yield
+    next1
+    delay                        $24
+    yield
+    hdma                         $03
+    end
+B_AIM:                                                    ; at the target: start the comet 128 left, 96 up
+    spawn_actor_at               B_COMET, $A080, $00
+    spawn_actor_at               B_PART, $A090, $00
+    spawn_actor_at               B_PART, $B080, $00
+    spawn_actor_at               B_PART, $B090, $00
+    end
+B_COMET:                                                  ; lead fireball: moves itself, drops the tail
+    wait1
+    loop1                        $10
+    packed_draw_state            $0405
+    add_to_field                 $0C, $0004
+    add_to_field                 $0E, $0003
+    spawn_stationary             B_TRAIL
+    yield
+    packed_draw_state            $0845
+    add_to_field                 $0C, $0004
+    add_to_field                 $0E, $0003
+    yield
+    next1
+    end
+B_PART:                                                   ; the other three: same path, no tail
+    wait1
+    loop1                        $10
+    packed_draw_state            $0885
+    add_to_field                 $0C, $0004
+    add_to_field                 $0E, $0003
+    yield
+    packed_draw_state            $04C5
+    add_to_field                 $0C, $0004
+    add_to_field                 $0E, $0003
+    yield
+    next1
+    end
+B_TRAIL:                                                  ; tail burst: fades over 12 frames
+    wait3
+    packed_draw_state            $0805
+    yield
+    packed_draw_state            $0C05
+    yield
+    packed_draw_state            $0C85
+    yield
+    packed_draw_state            $4005
+    yield
+    end
+B_HIT:                                                    ; per target: a burst of explosions
+    wait2
+    loop1                        $05
+    spawn_actor_at               L_A01D, $0000, $00
+    yield
+    next1
+    end

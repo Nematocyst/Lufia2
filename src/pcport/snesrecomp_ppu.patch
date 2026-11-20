@@ -1,0 +1,139 @@
+diff --git a/runner/src/snes/ppu.c b/runner/src/snes/ppu.c
+index 0269cbd..811a48a 100644
+--- a/runner/src/snes/ppu.c
++++ b/runner/src/snes/ppu.c
+@@ -2338,6 +2338,91 @@ static void PpuDrawBackgrounds(Ppu *ppu, int y, bool sub) {
+   }
+ }
+ 
++PpuArtOverride g_ppu_art_override;
++
++/* 8-bit RGB of a buffer pixel at buffer index i on line y (see PpuArtOverride). */
++static inline void PpuArtColour(const Ppu *ppu, uint16 pixel, uint32 i, uint y,
++                                uint32 *r, uint32 *g, uint32 *b) {
++  const PpuArtOverride *a = &g_ppu_art_override;
++  uint32 layer = (pixel >> 8) & 0xf;
++  if (a->rgb && (layer == a->layer || (a->backdrop && layer == 5))) {
++    int sx = (int)i - kPpuExtraLeftRight;
++    int px = ((sx + ppu->hScroll[a->layer]) & 0x1ff) - a->ox;
++    int py = (((int)y + ppu->vScroll[a->layer]) & 0x1ff) - a->oy;
++    if (px >= 0 && py >= 0 && px < a->w && py < a->h) {
++      uint32 c = a->rgb[py * a->w + px];
++      if (c >> 24) {
++        *r = (c >> 16) & 0xff; *g = (c >> 8) & 0xff; *b = c & 0xff;
++        if (a->tint) {                 /* same formula as the game's palette brightness */
++          const int t = a->tint;
++          if (t & 0x80) {
++            const int m = t - 0xC0;    /* (signed amount) + 0x40 */
++            *r = *r * m / 64; *g = *g * m / 64; *b = *b * m / 64;
++          } else {
++            const int m = 0x40 - t;
++            *r = 255 - (255 - *r) * m / 64; *g = 255 - (255 - *g) * m / 64;
++            *b = 255 - (255 - *b) * m / 64;
++          }
++        }
++        return;
++      }
++    }
++  }
++  uint32 col = ppu->cgram[pixel & 0xff], c5;
++  c5 = col & 0x1f;         *r = (c5 << 3) | (c5 >> 2);
++  c5 = (col >> 5) & 0x1f;  *g = (c5 << 3) | (c5 >> 2);
++  c5 = (col >> 10) & 0x1f; *b = (c5 << 3) | (c5 >> 2);
++}
++
++/* The compositor's per-pixel colour with the art override active: same rules
++ * as the 5-bit path below, in 8 bits per channel. */
++static void PpuArtComposeSpan(Ppu *ppu, uint y, uint32 left, uint32 right, uint32 *dst,
++                              bool clip, uint32 math_enabled_cur, bool rendered_subscreen,
++                              uint32 hud_world_left, uint32 hud_world_right,
++                              bool hud_full_width, bool anchor_full_width, int anchor_full_layer,
++                              bool oam_hud_full_width) {
++  uint32 bright = PPU_brightness(ppu);
++  uint32 f = ppu->fixedColor, c5;
++  uint32 fr, fg, fb;
++  c5 = f & 0x1f; fr = (c5 << 3) | (c5 >> 2);
++  c5 = (f >> 5) & 0x1f; fg = (c5 << 3) | (c5 >> 2);
++  c5 = (f >> 10) & 0x1f; fb = (c5 << 3) | (c5 >> 2);
++  for (uint32 i = left; i < right; i++, dst++) {
++    uint16 pixel = ppu->bgBuffers[0].data[i];
++    uint8 main_layer = (pixel >> 8) & 0xf;
++    bool outside_world = i < hud_world_left || i >= hud_world_right;
++    const bool keep_hud =
++        (hud_full_width && main_layer == 2) ||
++        (anchor_full_width && main_layer == anchor_full_layer) ||
++        (oam_hud_full_width && (main_layer == 4 || main_layer == 6));
++    if (outside_world && !keep_hud) { dst[0] = 0; continue; }
++    uint32 r, g, b;
++    PpuArtColour(ppu, pixel, i, y, &r, &g, &b);
++    if (clip) r = g = b = 0;
++    if (math_enabled_cur & (1u << main_layer)) {
++      uint32 r2 = fr, g2 = fg, b2 = fb;
++      bool half = PPU_halfColor(ppu);
++      if (PPU_addSubscreen(ppu)) {
++        uint16 sub = rendered_subscreen ? ppu->bgBuffers[1].data[i] : 0x0500;
++        if ((sub & 0xff) != 0)
++          PpuArtColour(ppu, sub, i, y, &r2, &g2, &b2);
++        else
++          half = false;            /* subscreen backdrop = fixed colour, not halved */
++      }
++      if (PPU_subtractColor(ppu)) {
++        r = r >= r2 ? r - r2 : 0; g = g >= g2 ? g - g2 : 0; b = b >= b2 ? b - b2 : 0;
++      } else {
++        r += r2; g += g2; b += b2;
++      }
++      if (half) { r >>= 1; g >>= 1; b >>= 1; }
++      if (r > 255) r = 255;
++      if (g > 255) g = 255;
++      if (b > 255) b = 255;
++    }
++    dst[0] = (r * bright / 15) << 16 | (g * bright / 15) << 8 | (b * bright / 15);
++  }
++}
++
+ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
+   PpuClearOverlayRenderLine(ppu, y);
+   if (PPU_forcedBlank(ppu)) {
+@@ -2430,6 +2515,13 @@ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
+     uint32 clip_color_mask = (cw_clip_math & 1) ? 0x1f : 0;
+     uint32 math_enabled_cur = PPU_mathEnabled(ppu) & ((cw_clip_math & 0x100) ? -1 : 0);
+     uint32 fixed_color = ppu->fixedColor;
++    if (g_ppu_art_override.rgb) {
++      uint32 m = math_enabled_cur ? (PPU_mathEnabled(ppu) & 0xff) : 0;
++      PpuArtComposeSpan(ppu, y, left, right, dst, clip_color_mask == 0, m,
++                        rendered_subscreen, hud_world_left, hud_world_right, hud_full_width,
++                        anchor_full_width, anchor_full_layer, oam_hud_full_width);
++      dst += right - left;
++    } else
+     if (math_enabled_cur == 0 || fixed_color == 0 && !PPU_halfColor(ppu) && !rendered_subscreen) {
+       // Math is disabled (or has no effect), so can avoid the per-pixel maths check
+       uint32 i = left;
+diff --git a/runner/src/snes/ppu.h b/runner/src/snes/ppu.h
+index c9df036..9a100f5 100644
+--- a/runner/src/snes/ppu.h
++++ b/runner/src/snes/ppu.h
+@@ -72,6 +72,24 @@ typedef struct PpuWsElasticSeg {
+ 
+ typedef uint16_t PpuZbufType;
+ 
++/* Art override (Lufia II "hi-colour backgrounds", 2026-11-14): while `rgb` is
++ * set, every main/sub screen pixel that comes from `layer` (or the backdrop,
++ * if `backdrop` is set) takes its colour from a full-colour picture placed on
++ * that layer's plane instead of from CGRAM: plane x = screen x + hScroll,
++ * plane y = line + vScroll (mod 256/512), picture pixel = plane - (ox, oy).
++ * Colour math, windows and brightness still apply (in 8 bits per channel).
++ * Pixels outside the picture or with alpha 0 keep the game's own colour. */
++typedef struct PpuArtOverride {
++  const uint32_t *rgb;    /* 0xAARRGGBB, w*h */
++  int w, h, ox, oy;
++  uint8_t layer;          /* 0 = BG1 ... 3 = BG4 */
++  uint8_t backdrop;
++  uint8_t tint;           /* game's palette brightness for the layer: 0 = none,
++                           * bit 7 set = darken (c*(tint-0xC0)/64), else brighten
++                           * toward white ((255-c)*(0x40-tint)/64 from white) */
++} PpuArtOverride;
++extern PpuArtOverride g_ppu_art_override;
++
+ typedef struct PpuPixelPrioBufs {
+   // This holds the prio in the upper 8 bits and the color in the lower 8 bits.
+   // Sized for the widescreen border; logical screen x maps to

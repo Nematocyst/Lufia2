@@ -1,0 +1,396 @@
+<title>Lufia II Map Editor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: workbench — toolbar on top, map canvas in the middle, tileset + export panel on the right (stacks under at phone width). */
+:root {
+  --exit: #12a4d9; --event: #f08a24; --point: #e8c21c; --npc: #d63ad6;
+  --bg: #eceef2; --panel: #f8f9fb; --line: #cfd4dd; --fg: #1d2330; --muted: #5b6475;
+  --accent: #2f6fd6; --accent-fg: #ffffff; --wall: #e0362c; --sel: #f2b705; --canvas: #c9ced8;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15181e; --panel: #1d2129; --line: #2f3542; --fg: #e3e7ef; --muted: #98a1b3;
+  --accent: #5b93ef; --accent-fg: #0d1320; --wall: #ff5a4e; --sel: #ffd23f; --canvas: #0e1015; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15181e; --panel: #1d2129; --line: #2f3542; --fg: #e3e7ef; --muted: #98a1b3;
+  --accent: #5b93ef; --accent-fg: #0d1320; --wall: #ff5a4e; --sel: #ffd23f; --canvas: #0e1015; color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: .01em; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.group { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-right: 2px; }
+button, select, .file { font: inherit; font-size: 13px; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible, .file:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type=checkbox] { accent-color: var(--accent); }
+.file input { display: none; }
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 560px; gap: 12px; }
+.view { min-width: 0; min-height: 320px; overflow: auto; background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; position: relative; }
+.view canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+aside { min-width: 0; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tiles { overflow: auto; max-height: 46vh; background: var(--canvas); border-radius: 4px; }
+.tiles canvas { display: block; image-rendering: pixelated; cursor: pointer; }
+.status { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.4em; overflow-wrap: anywhere; }
+.status b { color: var(--fg); font-weight: 500; }
+textarea { width: 100%; box-sizing: border-box; min-height: 90px; font-family: var(--mono); font-size: 12px; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; resize: vertical; }
+.note { font-size: 12.5px; color: var(--muted); line-height: 1.45; margin: 0; max-width: 65ch; }
+.pill { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); }
+.pill.example { border-color: var(--sel); }
+.objform { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px 10px; }
+.objform label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); }
+.objform input { font: inherit; font-family: var(--mono); font-size: 13px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; width: 100%; box-sizing: border-box; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+@media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } .view { height: 55vh; } .tiles { max-height: 36vh; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="bar">
+  <h1>Lufia II Map Editor</h1>
+  <label class="file" id="openLabel">Open map packs…<input type="file" id="open" accept=".json" multiple></label>
+  <select id="mapSel" aria-label="Loaded maps"></select>
+  <span class="pill" id="mapInfo"></span>
+</header>
+
+<div class="bar">
+  <div class="group" role="group" aria-label="Tool">
+    <span class="label">Tool</span>
+    <button id="tPaint" aria-pressed="true" title="Paint the selected tile(s) on the active layer (P)">Paint</button>
+    <button id="tPick" aria-pressed="false" title="Pick tiles from the map; drag for a block (K)">Pick</button>
+    <button id="tWall" aria-pressed="false" title="Click near a cell's top or left edge to toggle a wall (W)">Walls</button>
+    <button id="tObj" aria-pressed="false" title="Select and move exits, events, points and characters (O)">Objects</button>
+  </div>
+  <div class="group" role="group" aria-label="Active layer">
+    <span class="label">Layer</span>
+    <button id="l0" aria-pressed="false">Lower</button>
+    <button id="l1" aria-pressed="true">Upper</button>
+  </div>
+  <div class="group">
+    <span class="label">Show</span>
+    <label><input type="checkbox" id="sh0" checked> lower</label>
+    <label><input type="checkbox" id="sh1" checked> upper</label>
+    <label><input type="checkbox" id="shW" checked> walls</label>
+    <label><input type="checkbox" id="shG"> grid</label>
+    <label><input type="checkbox" id="shO" checked> objects</label>
+  </div>
+  <div class="group">
+    <span class="label">Zoom</span>
+    <select id="zoom" aria-label="Zoom"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
+  </div>
+  <div class="group">
+    <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+  </div>
+</div>
+
+<main>
+  <div class="view" id="view"><canvas id="map"></canvas></div>
+  <aside>
+    <div class="card">
+      <div class="bar" style="justify-content: space-between">
+        <span class="label">Tileset</span>
+        <span class="status" id="brush"></span>
+      </div>
+      <div class="tiles"><canvas id="tiles"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="status" id="hover">Point at the map to see a cell.</div>
+    </div>
+    <div class="card" id="objCard">
+      <div class="bar" style="justify-content: space-between">
+        <span class="label">Objects</span>
+        <div class="legend"><span><i style="background:var(--exit)"></i>exit</span><span><i style="background:var(--event)"></i>event</span><span><i style="background:var(--point)"></i>point</span><span><i style="background:var(--npc)"></i>character</span></div>
+      </div>
+      <div class="status" id="objInfo">Use the Objects tool and click an exit, event, point or character.</div>
+      <div class="objform" id="objForm"></div>
+      <div class="group">
+        <button id="addExit">Add exit</button>
+        <button id="addEvent">Add event</button>
+        <button id="addPoint">Add point</button>
+        <button id="delObj">Delete selected</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="bar" style="justify-content: space-between">
+        <span class="label">Changes</span>
+        <span class="status" id="count">0 cells changed</span>
+      </div>
+      <textarea id="out" readonly aria-label="Changes as text"></textarea>
+      <div class="group">
+        <button id="copy">Copy changes</button>
+        <button id="revert">Revert this map</button>
+      </div>
+      <p class="note">Paste the copied changes into the chat; they are applied to the ROM and turned into a patch there. Walls are per cell: a wall on the top edge and/or the left edge (the game's collision bits $0400 and $0800). Exit and event rectangles cover x0..x1−1 and y0..y1−1; characters can be moved but not added yet.</p>
+    </div>
+  </aside>
+</main>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const WALL_TOP = 0x400, WALL_LEFT = 0x800;
+const maps = {};            // id -> state
+let cur = null, tool = 'paint', layer = 1, zoom = 2;
+let brush = { w: 1, h: 1, t: [0] };
+
+// ---------------------------------------------------------------- example pack (invented tiles, not game data)
+function examplePack() {
+  const c = document.createElement('canvas'); c.width = 32 * 16; c.height = 16; const g = c.getContext('2d');
+  const fill = (i, col, fn) => { g.fillStyle = col; g.fillRect(i * 16, 0, 16, 16); if (fn) fn(i * 16); };
+  fill(0, 'rgba(0,0,0,0)');
+  fill(1, '#4f8a3a', x => { g.fillStyle = '#5fa046'; for (let k = 0; k < 6; k++) g.fillRect(x + (k * 5) % 14, (k * 7) % 14, 2, 2); });
+  fill(2, '#2f5fa8', x => { g.fillStyle = '#4c7fcc'; g.fillRect(x + 2, 4, 6, 1); g.fillRect(x + 8, 10, 6, 1); });
+  fill(3, '#b89b67', x => { g.fillStyle = '#a3875a'; g.fillRect(x + 3, 3, 2, 2); g.fillRect(x + 10, 9, 2, 2); });
+  fill(4, '#7d7f86', x => { g.fillStyle = '#62646b'; g.fillRect(x, 7, 16, 1); g.fillRect(x + 7, 0, 1, 7); g.fillRect(x + 3, 8, 1, 8); g.fillRect(x + 12, 8, 1, 8); });
+  g.clearRect(5 * 16, 0, 16, 16); g.fillStyle = '#2d5e25'; g.beginPath(); g.arc(5 * 16 + 8, 7, 6, 0, 7); g.fill(); g.fillStyle = '#6b4a2b'; g.fillRect(5 * 16 + 7, 12, 2, 4);
+  g.clearRect(6 * 16, 0, 16, 16); g.fillStyle = '#e8c547'; g.fillRect(6 * 16 + 4, 4, 2, 2); g.fillRect(6 * 16 + 10, 9, 2, 2);
+  const W = 24, H = 16, L0 = [], L1 = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let t = 1; if (y >= 11 && y <= 12) t = 2; if (x >= 10 && x <= 12) t = 3; if (y >= 11 && y <= 12 && x >= 10 && x <= 12) t = 3;
+    L0.push(t);
+    let u = 0; if ((x * 7 + y * 3) % 11 === 0 && t === 1) u = 5; if ((x * 5 + y) % 13 === 0 && t === 1 && !u) u = 6;
+    if (y === 3 && x >= 4 && x <= 19 && (x < 10 || x > 12)) u = 4;
+    let f = 0; if (y === 11 && (x < 10 || x > 12)) f |= WALL_TOP; if (y === 13 && (x < 10 || x > 12)) f |= WALL_TOP;
+    L1.push(u | f);
+  }
+  return { map: -1, name: 'Example map (invented tiles)', example: true, ntiles: 7, atlas: c.toDataURL(), backdrop: '#000000',
+           collisionLayer: 1, layers: [{ w: W, h: H, cells: L0 }, { w: W, h: H, cells: L1 }],
+           header: { exits: [[0, 10, 15, 13, 16, 240, 30, 40, 0]], events: [[1, 4, 6, 8, 8]], points: [[1, 11, 14]], npcs: [[1, 16, 7, 216, 81, 2]] } };
+}
+
+// ---------------------------------------------------------------- loading
+function addPack(p) {
+  const img = new Image();
+  const hdr = p.header || { exits: [], events: [], points: [], npcs: [] };
+  const st = { p, img, orig: p.layers.map(l => l.cells.slice()), cells: p.layers.map(l => l.cells.slice()), undo: [], redo: [],
+               hdr0: JSON.stringify(hdr), hdr: JSON.parse(JSON.stringify(hdr)), sel: null };
+  const key = p.map < 0 ? 'example' : 'm' + p.map;
+  try { const d = JSON.parse(localStorage.getItem('l2edit-' + key) || 'null');
+        if (d && d.length === st.cells.length) d.forEach((l, k) => { if (l.length === st.cells[k].length) st.cells[k] = l; });
+        const h = JSON.parse(localStorage.getItem('l2hdr-' + key) || 'null'); if (h && h.exits) st.hdr = h; } catch (e) {}
+  maps[key] = st;
+  img.onload = () => { refreshSelect(key); select(key); };
+  img.src = p.atlas;
+}
+function refreshSelect(sel) {
+  const s = $('mapSel'); s.innerHTML = '';
+  Object.keys(maps).sort().forEach(k => { const p = maps[k].p; const o = document.createElement('option'); o.value = k;
+    o.textContent = p.map < 0 ? p.name : '$' + p.map.toString(16).toUpperCase().padStart(2, '0') + '  ' + (p.name || ''); s.appendChild(o); });
+  if (sel) s.value = sel;
+}
+$('open').addEventListener('change', e => readFiles(e.target.files));
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { e.preventDefault(); readFiles(e.dataTransfer.files); });
+function readFiles(files) {
+  [...files].forEach(f => { const r = new FileReader(); r.onload = () => {
+    try { const p = JSON.parse(r.result); if (!p.layers || !p.atlas) throw 0; addPack(p); }
+    catch (e) { $('hover').textContent = f.name + ' is not a map pack (expected map_XX.json from mappack.py).'; } }; r.readAsText(f); });
+}
+$('mapSel').addEventListener('change', e => select(e.target.value));
+
+function select(key) {
+  cur = maps[key]; const p = cur.p, L = p.layers[0];
+  $('mapInfo').textContent = (p.example ? 'example · ' : '') + L.w + '×' + L.h + ' cells · ' + p.ntiles + ' tiles';
+  $('mapInfo').className = 'pill' + (p.example ? ' example' : '');
+  brush = { w: 1, h: 1, t: [1 % p.ntiles] };
+  drawTiles(); draw(); updateOut(); showBrush(); showObj();
+}
+
+// ---------------------------------------------------------------- drawing
+const mc = $('map'), mg = mc.getContext('2d'), tc = $('tiles'), tg = tc.getContext('2d');
+let hoverCell = null, dragRect = null, raf = 0;
+function L(k) { return cur.p.layers[k]; }
+function draw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawNow(); }); }
+function drawNow() {
+  if (!cur) return;
+  const W = L(0).w, H = L(0).h, z = zoom;
+  mc.width = W * 16 * z; mc.height = H * 16 * z;
+  mg.imageSmoothingEnabled = false;
+  mg.fillStyle = cur.p.backdrop || '#000'; mg.fillRect(0, 0, mc.width, mc.height);
+  for (let k = 0; k < cur.cells.length; k++) {
+    if (!$('sh' + Math.min(k, 1)).checked) continue;
+    const lw = L(k).w, lh = L(k).h, cells = cur.cells[k];
+    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) {
+      const t = cells[y * lw + x] & 0x3FF; if (k > 0 && t === 0) continue;
+      mg.drawImage(cur.img, (t % 32) * 16, (t >> 5) * 16, 16, 16, x * 16 * z, y * 16 * z, 16 * z, 16 * z);
+    }
+  }
+  const s = 16 * z;
+  if ($('shG').checked) { mg.strokeStyle = 'rgba(255,255,255,.18)'; mg.lineWidth = 1; mg.beginPath();
+    for (let x = 0; x <= W; x++) { mg.moveTo(x * s + .5, 0); mg.lineTo(x * s + .5, H * s); }
+    for (let y = 0; y <= H; y++) { mg.moveTo(0, y * s + .5); mg.lineTo(W * s, y * s + .5); } mg.stroke(); }
+  if ($('shW').checked) {
+    const k = cur.p.collisionLayer ?? 1, cells = cur.cells[k], lw = L(k).w, lh = L(k).h;
+    mg.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--wall');
+    const t = Math.max(2, z + 1);
+    for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) { const v = cells[y * lw + x];
+      if (v & WALL_TOP) mg.fillRect(x * s, y * s - t / 2, s, t);
+      if (v & WALL_LEFT) mg.fillRect(x * s - t / 2, y * s, t, s); }
+  }
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  if ($('shO').checked) {
+    const H = cur.hdr; mg.lineWidth = 2; mg.font = (9 + 2 * z) + 'px ' + 'monospace'; mg.textBaseline = 'top';
+    const rect = (r, col, label, sel) => { const [x0, y0, x1, y1] = r; mg.fillStyle = col + '33'; mg.strokeStyle = col;
+      mg.fillRect(x0 * s, y0 * s, (x1 - x0) * s, (y1 - y0) * s); mg.strokeRect(x0 * s + 1, y0 * s + 1, (x1 - x0) * s - 2, (y1 - y0) * s - 2);
+      mg.fillStyle = col; mg.fillText(label, x0 * s + 3, y0 * s + 3); if (sel) { mg.strokeStyle = css('--sel'); mg.lineWidth = 3; mg.strokeRect(x0 * s - 2, y0 * s - 2, (x1 - x0) * s + 4, (y1 - y0) * s + 4); mg.lineWidth = 2; } };
+    const dot = (x, y, col, label, sel) => { mg.fillStyle = col; mg.beginPath(); mg.arc(x * s + s / 2, y * s + s / 2, s * 0.32, 0, 7); mg.fill();
+      mg.fillStyle = '#000'; mg.fillText(label, x * s + s / 2 - 3 * z, y * s + s / 2 - 4 * z);
+      if (sel) { mg.strokeStyle = css('--sel'); mg.lineWidth = 3; mg.beginPath(); mg.arc(x * s + s / 2, y * s + s / 2, s * 0.48, 0, 7); mg.stroke(); mg.lineWidth = 2; } };
+    const isSel = (t, i) => cur.sel && cur.sel[0] === t && cur.sel[1] === i;
+    H.events.forEach((e, i) => rect(e.slice(1, 5), css('--event'), 'ev' + e[0], isSel('events', i)));
+    H.exits.forEach((e, i) => rect(e.slice(1, 5), css('--exit'), '→' + (e[8] === 255 ? 'here' : '$' + e[8].toString(16).toUpperCase()), isSel('exits', i)));
+    H.points.forEach((p, i) => dot(p[1], p[2], css('--point'), String(p[0]), isSel('points', i)));
+    H.npcs.forEach((n, i) => dot(n[1], n[2], css('--npc'), String(n[0]), isSel('npcs', i)));
+  }
+  const selc = getComputedStyle(document.documentElement).getPropertyValue('--sel');
+  if (dragRect) { const [x0, y0, x1, y1] = norm(dragRect); mg.strokeStyle = selc; mg.lineWidth = 2;
+    mg.strokeRect(x0 * s + 1, y0 * s + 1, (x1 - x0 + 1) * s - 2, (y1 - y0 + 1) * s - 2); }
+  else if (hoverCell && tool === 'paint') { mg.strokeStyle = selc; mg.lineWidth = 2;
+    mg.strokeRect(hoverCell[0] * s + 1, hoverCell[1] * s + 1, brush.w * s - 2, brush.h * s - 2); }
+}
+function drawTiles() {
+  const n = cur.p.ntiles, rows = Math.ceil(n / 32), z = 1;
+  tc.width = 32 * 16 * z; tc.height = rows * 16 * z; tg.imageSmoothingEnabled = false;
+  tg.fillStyle = cur.p.backdrop || '#000'; tg.fillRect(0, 0, tc.width, tc.height);
+  tg.drawImage(cur.img, 0, 0, 512, rows * 16, 0, 0, tc.width, tc.height);
+  if (brush.fromTiles) { const [x0, y0] = brush.fromTiles; tg.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--sel');
+    tg.lineWidth = 2; tg.strokeRect(x0 * 16 + 1, y0 * 16 + 1, brush.w * 16 - 2, brush.h * 16 - 2); }
+}
+function showBrush() { $('brush').textContent = brush.w * brush.h === 1 ? 'tile ' + brush.t[0] : brush.w + '×' + brush.h + ' block'; }
+
+// ---------------------------------------------------------------- editing
+function norm(r) { return [Math.min(r[0], r[2]), Math.min(r[1], r[3]), Math.max(r[0], r[2]), Math.max(r[1], r[3])]; }
+function cellAt(e) { const b = mc.getBoundingClientRect(); const s = 16 * zoom;
+  const px = (e.clientX - b.left) * mc.width / b.width, py = (e.clientY - b.top) * mc.height / b.height;
+  return [Math.floor(px / s), Math.floor(py / s), (px % s) / s, (py % s) / s]; }
+let batch = null;
+function setCell(k, x, y, v) { const l = L(k); if (x < 0 || y < 0 || x >= l.w || y >= l.h) return;
+  const i = y * l.w + x, old = cur.cells[k][i]; if (old === v) return;
+  cur.cells[k][i] = v; batch.push([k, i, old, v]); }
+function begin() { batch = []; }
+function end() { if (batch && batch.length) { cur.undo.push(batch); cur.redo = []; save(); updateOut(); } batch = null; draw(); }
+function paintAt(x, y) { for (let j = 0; j < brush.h; j++) for (let i = 0; i < brush.w; i++) {
+  const t = brush.t[j * brush.w + i]; if (t === undefined) continue; const l = L(layer);
+  if (x + i >= l.w || y + j >= l.h) continue;
+  const old = cur.cells[layer][(y + j) * l.w + x + i]; setCell(layer, x + i, y + j, (old & 0xFC00) | t); } }
+let wallMode = null;
+function wallAt(c, first) { const [x, y, fx, fy] = c, k = cur.p.collisionLayer ?? 1, l = L(k);
+  if (x < 0 || y < 0 || x >= l.w || y >= l.h) return;
+  const bit = first ? (fy < fx ? WALL_TOP : WALL_LEFT) : wallMode.bit;
+  const old = cur.cells[k][y * l.w + x];
+  if (first) wallMode = { bit, on: !(old & bit) };
+  setCell(k, x, y, wallMode.on ? old | bit : old & ~bit); }
+
+let down = false, last = null, objDrag = null;
+function hitObject(x, y) { const H = cur.hdr;
+  const order = [['npcs', r => r[1] === x && r[2] === y], ['points', r => r[1] === x && r[2] === y],
+                 ['exits', r => x >= r[1] && x < r[3] && y >= r[2] && y < r[4]], ['events', r => x >= r[1] && x < r[3] && y >= r[2] && y < r[4]]];
+  for (const [t, f] of order) { const i = H[t].findIndex(f); if (i >= 0) return [t, i]; } return null; }
+function moveObj(t, i, dx, dy) { const r = cur.hdr[t][i];
+  if (t === 'npcs' || t === 'points') { r[1] += dx; r[2] += dy; } else { r[1] += dx; r[3] += dx; r[2] += dy; r[4] += dy; } }
+const FIELDS = { exits: ['id', 'x0', 'y0', 'x1', 'y1', 'params', 'dest x', 'dest y', 'dest map'], events: ['id', 'x0', 'y0', 'x1', 'y1'],
+                 points: ['id', 'x', 'y'], npcs: ['id', 'x', 'y'] };
+const TNAME = { exits: 'Exit', events: 'Event', points: 'Point', npcs: 'Character' };
+function showObj() { const f = $('objForm'); f.innerHTML = '';
+  if (!cur || !cur.sel) { $('objInfo').textContent = 'Use the Objects tool and click an exit, event, point or character.'; return; }
+  const [t, i] = cur.sel, r = cur.hdr[t][i];
+  $('objInfo').textContent = TNAME[t] + ' ' + r[0] + (t === 'exits' ? ' · dest map $FF = this map; params $F0 = normal walk-through' : t === 'npcs' ? ' · position only' : '');
+  FIELDS[t].forEach((name, k) => { const lab = document.createElement('label'); lab.textContent = name;
+    const inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 255; inp.value = r[k]; inp.id = 'of-' + t + '-' + k;
+    if (t === 'npcs' && k === 0) inp.disabled = true;
+    inp.addEventListener('change', () => { const v = Math.max(0, Math.min(255, parseInt(inp.value, 10) || 0)); r[k] = v; inp.value = v; hdrChanged(); });
+    lab.appendChild(inp); f.appendChild(lab); }); }
+function hdrChanged() { saveHdr(); updateOut(); draw(); }
+function saveHdr() { const key = cur.p.map < 0 ? 'example' : 'm' + cur.p.map; try { localStorage.setItem('l2hdr-' + key, JSON.stringify(cur.hdr)); } catch (e) {} }
+function nextId(list) { let m = 0; list.forEach(r => { if (r[0] < 255) m = Math.max(m, r[0]); }); return Math.min(254, m + 1); }
+function centre() { const v = $('view'), s = 16 * zoom; return [Math.floor((v.scrollLeft + v.clientWidth / 2) / s), Math.floor((v.scrollTop + v.clientHeight / 2) / s)]; }
+$('addExit').onclick = () => { if (!cur) return; const [x, y] = centre(); cur.hdr.exits.push([nextId(cur.hdr.exits), x, y, x + 1, y + 1, 240, x, y, 255]); cur.sel = ['exits', cur.hdr.exits.length - 1]; setTool('obj'); showObj(); hdrChanged(); };
+$('addEvent').onclick = () => { if (!cur) return; const [x, y] = centre(); cur.hdr.events.push([nextId(cur.hdr.events), x, y, x + 1, y + 1]); cur.sel = ['events', cur.hdr.events.length - 1]; setTool('obj'); showObj(); hdrChanged(); };
+$('addPoint').onclick = () => { if (!cur) return; const [x, y] = centre(); cur.hdr.points.push([nextId(cur.hdr.points), x, y]); cur.sel = ['points', cur.hdr.points.length - 1]; setTool('obj'); showObj(); hdrChanged(); };
+$('delObj').onclick = () => { if (!cur || !cur.sel) return; const [t, i] = cur.sel;
+  if (t === 'npcs') { $('objInfo').textContent = 'Characters can only be moved for now.'; return; }
+  cur.hdr[t].splice(i, 1); cur.sel = null; showObj(); hdrChanged(); };
+mc.addEventListener('pointerdown', e => { if (!cur) return; mc.setPointerCapture(e.pointerId); down = true; const c = cellAt(e); begin();
+  if (tool === 'paint') paintAt(c[0], c[1]);
+  else if (tool === 'wall') wallAt(c, true);
+  else if (tool === 'pick') dragRect = [c[0], c[1], c[0], c[1]];
+  else if (tool === 'obj') { cur.sel = hitObject(c[0], c[1]); objDrag = cur.sel ? { moved: false } : null; showObj(); }
+  last = c; draw(); });
+mc.addEventListener('pointermove', e => { if (!cur) return; const c = cellAt(e); hoverCell = c; info(c);
+  if (down && (c[0] !== last[0] || c[1] !== last[1])) {
+    if (tool === 'paint') paintAt(c[0], c[1]); else if (tool === 'wall') wallAt(c, false); else if (tool === 'pick') { dragRect[2] = c[0]; dragRect[3] = c[1]; }
+    else if (tool === 'obj' && objDrag && cur.sel) { moveObj(cur.sel[0], cur.sel[1], c[0] - last[0], c[1] - last[1]); objDrag.moved = true; showObj(); }
+    last = c; }
+  draw(); });
+mc.addEventListener('pointerup', () => { if (!down) return; down = false;
+  if (tool === 'pick' && dragRect) { const [x0, y0, x1, y1] = norm(dragRect), l = L(layer); const t = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) t.push(x < l.w && y < l.h ? cur.cells[layer][y * l.w + x] & 0x3FF : 0);
+    brush = { w: x1 - x0 + 1, h: y1 - y0 + 1, t }; dragRect = null; showBrush(); drawTiles(); setTool('paint'); }
+  if (objDrag && objDrag.moved) hdrChanged(); objDrag = null;
+  end(); });
+mc.addEventListener('pointerleave', () => { hoverCell = null; draw(); });
+function info(c) { const [x, y] = c; if (!cur || x < 0 || y < 0 || x >= L(0).w || y >= L(0).h) return;
+  const parts = cur.cells.map((cells, k) => { const v = cells[y * L(k).w + x]; return 'L' + k + ' <b>' + (v & 0x3FF) + '</b>' + (v & 0xFC00 ? ' +$' + (v & 0xFC00).toString(16).toUpperCase() : ''); });
+  const v = cur.cells[cur.p.collisionLayer ?? 1][y * L(1).w + x] || 0;
+  const w = [v & WALL_TOP ? 'top' : '', v & WALL_LEFT ? 'left' : ''].filter(Boolean).join('+') || 'none';
+  const ob = hitObject(x, y), on = ob ? ' · ' + TNAME[ob[0]].toLowerCase() + ' ' + cur.hdr[ob[0]][ob[1]][0] : '';
+  $('hover').innerHTML = 'x <b>' + x + '</b> y <b>' + y + '</b> · ' + parts.join(' · ') + ' · wall ' + w + on; }
+
+// tileset picking (drag for a block)
+let tdown = null;
+function tcell(e) { const b = tc.getBoundingClientRect(); return [Math.floor((e.clientX - b.left) * tc.width / b.width / 16), Math.floor((e.clientY - b.top) * tc.height / b.height / 16)]; }
+tc.addEventListener('pointerdown', e => { if (!cur) return; tc.setPointerCapture(e.pointerId); tdown = tcell(e); });
+tc.addEventListener('pointerup', e => { if (!tdown) return; const c = tcell(e); const [x0, y0, x1, y1] = norm([...tdown, ...c]); const t = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const n = y * 32 + x; t.push(n < cur.p.ntiles ? n : 0); }
+  brush = { w: x1 - x0 + 1, h: y1 - y0 + 1, t, fromTiles: [x0, y0] }; tdown = null; showBrush(); drawTiles(); setTool('paint'); });
+
+// ---------------------------------------------------------------- undo, output
+function undoRedo(from, to, useNew) { const b = cur && cur[from].pop(); if (!b) return;
+  if (useNew) b.forEach(([k, idx, o, n]) => { cur.cells[k][idx] = n; });
+  else for (let i = b.length - 1; i >= 0; i--) { const [k, idx, o] = b[i]; cur.cells[k][idx] = o; }
+  cur[to].push(b); save(); updateOut(); draw(); }
+$('undo').onclick = () => undoRedo('undo', 'redo', false);
+$('redo').onclick = () => undoRedo('redo', 'undo', true);
+function diffs() { const out = []; cur.cells.forEach((cells, k) => cells.forEach((v, i) => { if (v !== cur.orig[k][i]) out.push([k, i % L(k).w, Math.floor(i / L(k).w), v]); })); return out; }
+function updateOut() { const d = diffs(), hch = JSON.stringify(cur.hdr) !== cur.hdr0;
+  $('count').textContent = d.length + (d.length === 1 ? ' cell changed' : ' cells changed') + (hch ? ' · objects changed' : '');
+  const id = cur.p.map < 0 ? 'example' : cur.p.map.toString(16).toUpperCase().padStart(2, '0');
+  const o = { lufia2_map_edits: 1, map: id, edits: d }; if (hch) o.header = cur.hdr;
+  $('out').value = d.length || hch ? JSON.stringify(o) : ''; }
+function save() { const key = cur.p.map < 0 ? 'example' : 'm' + cur.p.map; try { localStorage.setItem('l2edit-' + key, JSON.stringify(cur.cells)); } catch (e) {} }
+$('copy').onclick = () => { const t = $('out'); if (!t.value) return;
+  navigator.clipboard.writeText(t.value).then(() => { $('copy').textContent = 'Copied'; setTimeout(() => $('copy').textContent = 'Copy changes', 1500); })
+    .catch(() => { t.select(); $('copy').textContent = 'Press Ctrl+C'; }); };
+let armed = false;
+$('revert').onclick = () => { if (!cur) return;
+  if (!armed) { armed = true; $('revert').textContent = 'Click again to revert'; setTimeout(() => { armed = false; $('revert').textContent = 'Revert this map'; }, 2500); return; }
+  armed = false; $('revert').textContent = 'Revert this map'; cur.cells = cur.orig.map(l => l.slice()); cur.undo = []; cur.redo = [];
+  cur.hdr = JSON.parse(cur.hdr0); cur.sel = null; showObj(); save(); saveHdr(); updateOut(); draw(); };
+
+// ---------------------------------------------------------------- controls
+function setTool(t) { tool = t; ['Paint', 'Pick', 'Wall', 'Obj'].forEach(n => $('t' + n).setAttribute('aria-pressed', String(t === n.toLowerCase()))); draw(); }
+$('tPaint').onclick = () => setTool('paint'); $('tPick').onclick = () => setTool('pick'); $('tWall').onclick = () => setTool('wall'); $('tObj').onclick = () => setTool('obj');
+function setLayer(k) { layer = k; $('l0').setAttribute('aria-pressed', String(k === 0)); $('l1').setAttribute('aria-pressed', String(k === 1)); }
+$('l0').onclick = () => setLayer(0); $('l1').onclick = () => setLayer(1);
+['sh0', 'sh1', 'shW', 'shG', 'shO'].forEach(id => $(id).addEventListener('change', draw));
+$('zoom').addEventListener('change', e => { zoom = +e.target.value; draw(); });
+document.addEventListener('keydown', e => {
+  if (['TEXTAREA', 'SELECT', 'INPUT'].includes(e.target.tagName)) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? $('redo').click() : $('undo').click(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); $('redo').click(); }
+  else if (e.key === 'p') setTool('paint'); else if (e.key === 'k') setTool('pick'); else if (e.key === 'w') setTool('wall'); else if (e.key === 'o') setTool('obj');
+});
+
+addPack(examplePack());
+})();
+</script>
